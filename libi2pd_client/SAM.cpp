@@ -26,7 +26,7 @@ namespace client
 	SAMSocket::SAMSocket (SAMBridge& owner):
 		m_Owner (owner), m_Socket(owner.GetService()), m_Timer (m_Owner.GetService ()),
 		m_BufferOffset (0),
-		m_SocketType (eSAMSocketTypeUnknown), m_IsSilent (false),
+		m_SocketType (eSAMSocketTypeUnknown), m_toPort (0), m_IsSilent (false),
 		m_IsAccepting (false), m_IsReceiving (false)
 	{
 	}
@@ -82,7 +82,7 @@ namespace client
 
 	static bool SAMVersionAcceptable(const std::string & ver)
 	{
-		return ver == "3.0" || ver == "3.1";
+		return ver == "3.0" || ver == "3.1" || ver == "3.2";
 	}
 
 	static bool SAMVersionTooLow(const std::string & ver)
@@ -92,7 +92,7 @@ namespace client
 
 	static bool SAMVersionTooHigh(const std::string & ver)
 	{
-		return ver.size() && ver > "3.1";
+		return ver.size() && ver > "3.2";
 	}
 
 	void SAMSocket::HandleHandshakeReceived (const boost::system::error_code& ecode, std::size_t bytes_transferred)
@@ -120,7 +120,7 @@ namespace client
 
 			if (!strcmp (m_Buffer, SAM_HANDSHAKE))
 			{
-				std::string maxver("3.1");
+				std::string maxver("3.2");
 				std::string minver("3.0");
 				// try to find MIN and MAX, 3.0 if not found
 				if (separator)
@@ -491,6 +491,30 @@ namespace client
 		std::string& id = params[SAM_PARAM_ID];
 		std::string& destination = params[SAM_PARAM_DESTINATION];
 		std::string& silent = params[SAM_PARAM_SILENT];
+
+		const auto itPort = params.find(SAM_PARAM_TO_PORT);
+		if (itPort == params.end())
+		{
+			SendSessionI2PError("Invalid TO_PORT");
+			return;
+		}
+		int toPort = 0;
+		try
+		{
+			toPort = std::stoi(itPort->second);
+		}
+		catch (const std::exception& ex)
+		{
+			SendSessionI2PError("Invalid TO_PORT value");
+			return;
+		}
+		if (toPort < 0 || toPort > 65535)
+		{
+			SendSessionI2PError("Invalid TO_PORT range");
+			return;
+		}
+
+		m_toPort = toPort;
 		if (silent == SAM_VALUE_TRUE) m_IsSilent = true;
 		m_ID = id;
 		auto session = m_Owner.FindSession (id);
@@ -555,9 +579,9 @@ namespace client
 		if (session)
 		{
 			if (session->GetLocalDestination ()->SupportsEncryptionType (remote->GetEncryptionType ()))
-			{
+			{ // m_toPort is a member of SAMSocket
 				m_SocketType = eSAMSocketTypeStream;
-				m_Stream = session->GetLocalDestination ()->CreateStream (remote);
+				m_Stream = session->GetLocalDestination ()->CreateStream (remote, m_toPort);
 				if (m_Stream)
 				{
 					m_Stream->Send ((uint8_t *)m_Buffer, m_BufferOffset); // connect and send
@@ -992,7 +1016,7 @@ namespace client
 			size_t bufSize = SAM_SOCKET_BUFFER_SIZE;
 			size_t unsentSize = m_Stream ? m_Stream->GetSendBufferSize () : 0;
 			if (unsentSize)
-			{	
+			{
 				if (unsentSize >= SAM_STREAM_MAX_SEND_BUFFER_SIZE) return; // buffer is full
 				if (unsentSize > SAM_STREAM_MAX_SEND_BUFFER_SIZE - SAM_SOCKET_BUFFER_SIZE)
 					bufSize = SAM_STREAM_MAX_SEND_BUFFER_SIZE - unsentSize;
@@ -1000,7 +1024,7 @@ namespace client
 			m_IsReceiving = true;
 			m_Socket.async_read_some (boost::asio::buffer(m_Buffer, bufSize),
 				std::bind(&SAMSocket::HandleReceived, shared_from_this (), std::placeholders::_1, std::placeholders::_2));
-		}	
+		}
 		else
 			m_Socket.async_read_some (boost::asio::buffer(m_Buffer + m_BufferOffset, SAM_SOCKET_BUFFER_SIZE - m_BufferOffset),
 				std::bind(&SAMSocket::HandleMessage, shared_from_this (), std::placeholders::_1, std::placeholders::_2));
@@ -1018,11 +1042,11 @@ namespace client
 		else
 		{
 			if (m_Stream)
-			{	
+			{
 				m_Stream->AsyncSend ((uint8_t *)m_Buffer, bytes_transferred,
 					std::bind(&SAMSocket::HandleStreamSend, shared_from_this(), std::placeholders::_1));
 				Receive ();
-			}	
+			}
 			else
 				Terminate("No Stream Remaining");
 		}
@@ -1165,7 +1189,7 @@ namespace client
 				}
 			}
 			if (!m_IsSilent)
-			{			
+			{
 				if (m_SocketType != eSAMSocketTypeTerminated)
 				{
 					// get remote peer address
@@ -1177,7 +1201,7 @@ namespace client
 						{
 							s->HandleWriteI2PData (ecode, bytes_transferred);
 						});
-				}	
+				}
 			}
 			else
 				I2PReceive ();
@@ -1404,10 +1428,10 @@ namespace client
 		{
 			std::unique_lock<std::mutex> l(m_SessionsMutex);
 			m_Sessions.swap (sessions);
-		}	
+		}
 		for (auto& it: sessions)
 			it.second->Close ();
-		
+
 		StopIOService ();
 	}
 
@@ -1541,8 +1565,8 @@ namespace client
 		auto timer = std::make_shared<boost::asio::deadline_timer>(GetService ());
 		timer->expires_from_now (boost::posix_time::seconds(5)); // postpone destination clean for 5 seconds
 		timer->async_wait (std::bind (&SAMBridge::HandleSessionCleanupTimer, this, std::placeholders::_1, session, timer));
-	}	
-		
+	}
+
 	void SAMBridge::HandleSessionCleanupTimer (const boost::system::error_code& ecode,
 		std::shared_ptr<SAMSession> session, std::shared_ptr<boost::asio::deadline_timer> timer)
 	{
@@ -1557,14 +1581,14 @@ namespace client
 				{
 					LogPrint (eLogInfo, "SAM: Session ", session->Name, " still has ", numStreams, " streams");
 					ScheduleSessionCleanupTimer (session);
-				}	
+				}
 				else
 					LogPrint (eLogDebug, "SAM: Session ", session->Name, " terminated");
-			}	
-		}	
+			}
+		}
 		// session's destructor is called here unless rescheduled
-	}	
-		
+	}
+
 	std::shared_ptr<SAMSession> SAMBridge::FindSession (const std::string& id) const
 	{
 		std::unique_lock<std::mutex> l(m_SessionsMutex);

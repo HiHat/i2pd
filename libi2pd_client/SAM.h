@@ -34,8 +34,8 @@ namespace client
 	const int SAM_SOCKET_CONNECTION_MAX_IDLE = 3600; // in seconds
 	const int SAM_SESSION_READINESS_CHECK_INTERVAL = 3; // in seconds
 	const size_t SAM_SESSION_MAX_ACCEPT_QUEUE_SIZE = 50;
-	const size_t SAM_SESSION_MAX_ACCEPT_INTERVAL = 3; // in seconds	
-	
+	const size_t SAM_SESSION_MAX_ACCEPT_INTERVAL = 3; // in seconds
+
 	const char SAM_HANDSHAKE[] = "HELLO VERSION";
 	const char SAM_HANDSHAKE_REPLY[] = "HELLO REPLY RESULT=OK VERSION=%s\n";
 	const char SAM_HANDSHAKE_NOVERSION[] = "HELLO REPLY RESULT=NOVERSION\n";
@@ -53,6 +53,7 @@ namespace client
 	const char SAM_STREAM_STATUS_OK[] = "STREAM STATUS RESULT=OK\n";
 	const char SAM_STREAM_STATUS_INVALID_ID[] = "STREAM STATUS RESULT=INVALID_ID\n";
 	const char SAM_STREAM_STATUS_INVALID_KEY[] = "STREAM STATUS RESULT=INVALID_KEY\n";
+	const char SAM_STREAM_STATUS_INVALID_TO_PORT[] = "STREAM STATUS RESULT=INVALID_TO_PORT\n";
 	const char SAM_STREAM_STATUS_CANT_REACH_PEER[] = "STREAM STATUS RESULT=CANT_REACH_PEER MESSAGE=\"%s\"\n";
 	const char SAM_STREAM_STATUS_I2P_ERROR[] = "STREAM STATUS RESULT=I2P_ERROR MESSAGE=\"%s\"\n";
 	const char SAM_STREAM_ACCEPT[] = "STREAM ACCEPT";
@@ -81,6 +82,7 @@ namespace client
 	const char SAM_PARAM_HOST[] = "HOST";
 	const char SAM_PARAM_PORT[] = "PORT";
 	const char SAM_PARAM_FROM_PORT[] = "FROM_PORT";
+	const char SAM_PARAM_TO_PORT[] = "TO_PORT";
 	const char SAM_VALUE_TRANSIENT[] = "TRANSIENT";
 	const char SAM_VALUE_STREAM[] = "STREAM";
 	const char SAM_VALUE_DATAGRAM[] = "DATAGRAM";
@@ -148,7 +150,7 @@ namespace client
 			void ProcessSessionRemove (char * buf, size_t len);
 			void SendReplyWithMessage (const char * reply, const std::string & msg);
 			void SendSessionI2PError(const std::string & msg);
-			void SendStreamI2PError(const std::string & msg);	
+			void SendStreamI2PError(const std::string & msg);
 			void SendStreamCantReachPeer(const std::string & msg);
 			size_t ProcessDatagramSend (char * buf, size_t len, const char * data); // from SAM 1.0
 			void ExtractParams (char * buf, std::map<std::string, std::string>& params);
@@ -176,6 +178,7 @@ namespace client
 			uint8_t m_StreamBuffer[SAM_STREAM_BUFFER_SIZE];
 			SAMSocketType m_SocketType;
 			std::string m_ID; // nickname
+			uint16_t m_toPort;
 			bool m_IsSilent;
 			bool m_IsAccepting; // for eSAMSocketTypeAcceptor only
 			bool m_IsReceiving; // for eSAMSocketTypeStream only
@@ -198,7 +201,7 @@ namespace client
 		SAMSessionType Type;
 		std::shared_ptr<boost::asio::ip::udp::endpoint> UDPEndpoint; // TODO: move
 		std::list<std::pair<std::shared_ptr<SAMSocket>, uint64_t> > acceptQueue; // socket, receive time in seconds
-		
+
 		SAMSession (SAMBridge & parent, const std::string & name, SAMSessionType type);
 		virtual ~SAMSession () {};
 
@@ -276,8 +279,8 @@ namespace client
 
 			void ScheduleSessionCleanupTimer (std::shared_ptr<SAMSession> session);
 			void HandleSessionCleanupTimer (const boost::system::error_code& ecode,
-				std::shared_ptr<SAMSession> session, std::shared_ptr<boost::asio::deadline_timer> timer);	                                
-			
+				std::shared_ptr<SAMSession> session, std::shared_ptr<boost::asio::deadline_timer> timer);
+
 		private:
 
 			bool m_IsSingleThread;
