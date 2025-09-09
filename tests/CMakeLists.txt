@@ -1,6 +1,18 @@
+cmake_minimum_required(VERSION 3.10)
+project(i2pd_tests)
+
+set(CMAKE_CXX_STANDARD 17)
+set(CMAKE_CXX_STANDARD_REQUIRED ON)
+
+find_package(OpenSSL REQUIRED)
+find_package(ZLIB REQUIRED)
+find_package(Threads REQUIRED)
+
 enable_testing()
-find_package(Check 0.9.10 REQUIRED)
+find_package(PkgConfig REQUIRED)
+pkg_check_modules(CHECK REQUIRED check)
 include_directories(${CHECK_INCLUDE_DIRS})
+link_directories(${CHECK_LIBRARY_DIRS})
 
 # Compiler flags:
 if(APPLE)
@@ -94,19 +106,25 @@ set(LIBS
   ${CMAKE_REQUIRED_LIBRARIES}
 )
 
-target_link_libraries(test-http-merge_chunked ${LIBS})
-target_link_libraries(test-http-req ${LIBS})
-target_link_libraries(test-http-res ${LIBS})
-target_link_libraries(test-http-url_decode ${LIBS})
-target_link_libraries(test-http-url ${LIBS})
-target_link_libraries(test-base-64 ${LIBS})
-target_link_libraries(test-gost ${LIBS})
-target_link_libraries(test-gost-sig ${LIBS})
-target_link_libraries(test-aeadchacha20poly1305 ${LIBS})
-target_link_libraries(test-blinding ${LIBS})
-target_link_libraries(test-elligator ${LIBS})
-target_link_libraries(test-eddsa ${LIBS})
-target_link_libraries(test-aes ${LIBS})
+set(TEST_TARGETS
+  test-http-merge_chunked
+  test-http-req
+  test-http-res
+  test-http-url_decode
+  test-http-url
+  test-base-64
+  test-gost
+  test-gost-sig
+  test-aeadchacha20poly1305
+  test-blinding
+  test-elligator
+  test-eddsa
+  test-aes
+)
+
+foreach(test_target ${TEST_TARGETS})
+  target_link_libraries(${test_target} PRIVATE ${LIBS})
+endforeach()
 
 add_test(test-http-merge_chunked ${TEST_PATH}/test-http-merge_chunked)
 add_test(test-http-req ${TEST_PATH}/test-http-req)
@@ -121,3 +139,6 @@ add_test(test-blinding ${TEST_PATH}/test-blinding)
 add_test(test-elligator ${TEST_PATH}/test-elligator)
 add_test(test-eddsa ${TEST_PATH}/test-eddsa)
 add_test(test-aes ${TEST_PATH}/test-aes)
+
+# Add the directory containing libi2pd.a as a link directory
+link_directories(${CMAKE_SOURCE_DIR}/../build)
